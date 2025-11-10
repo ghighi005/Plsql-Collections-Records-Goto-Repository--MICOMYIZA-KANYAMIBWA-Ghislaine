@@ -1,1 +1,307 @@
+# PL/SQL Collections, Records, and GOTO — Repository
+
+This repository document contains a problem definition, step-by-step requirements, and ready-to-run PL/SQL examples demonstrating:
+
+* PL/SQL Collections: Associative Arrays (index-by), VARRAYs, Nested Tables
+* PL/SQL Records: user-defined records, %ROWTYPE, cursor-based records
+* GOTO statements in PL/SQL (label + GOTO) and a short discussion of when (not) to use it
+
+---
+
+## Repository structure (logical)
+
+* README.md  (this document)
+* scripts/
+
+  * collections_examples.sql
+  * records_examples.sql
+  * goto_example.sql
+  * combined_solution.sql
+* docs/
+
+  * assessment_checklist.md
+  * run_instructions.md
+
+---
+
+## Problem definition (for students)
+
+**Context:** You work for a fictitious HR department. The HR needs small PL/SQL utilities to manipulate small in-memory datasets before moving data to the database. Your task is to produce PL/SQL blocks and documentation that demonstrate use of Collections (associative arrays, varrays, nested tables), Records (user-defined and %ROWTYPE), and the GOTO statement.
+
+**Requirements:**
+
+1. Create three focused PL/SQL blocks, each in its own script file (see names above):
+
+   * `collections_examples.sql` — demonstrate an associative array, a varray, and a nested table with operations (insert, delete, iterate, exists/first/last/count).
+   * `records_examples.sql` — demonstrate a user-defined record, a %ROWTYPE example (cursor-based or table-based), and show assigning fields and printing.
+   * `goto_example.sql` — demonstrate the use of a GOTO label to break out of deeply nested loops or conditional logic; explain why limited use is acceptable but structured alternatives are preferred.
+2. Provide a combined script `combined_solution.sql` that integrates a record containing a VARRAY and uses an associative array for quick lookup.
+3. Include thorough inline comments and a `docs/assessment_checklist.md` describing what the instructor will check.
+4. Ensure output is produced via `DBMS_OUTPUT.PUT_LINE` and the scripts include instructions to `SET SERVEROUTPUT ON` for SQL*Plus / SQL Developer.
+
+**Deliverable:** A set of scripts and documentation that an instructor can run and verify the behaviours.
+
+---
+
+## scripts/collections_examples.sql
+
+```sql
+-- collections_examples.sql
+-- Demonstrates: associative array (index-by), VARRAY, nested table
+-- Run in SQL*Plus or SQL Developer; ensure SERVEROUTPUT is ON
+
+SET SERVEROUTPUT ON SIZE 1000000;
+
+DECLARE
+  -- Associative array: map city name to population
+  TYPE population_map IS TABLE OF NUMBER INDEX BY VARCHAR2(64);
+  city_population population_map;
+
+  -- VARRAY: fixed upper bound 5 for monthly salaries
+  TYPE salary_varray IS VARRAY(5) OF NUMBER;
+  v_salaries salary_varray := salary_varray(5000,6000,7000);
+
+  -- Nested table: dynamically sizable list of bonus amounts
+  TYPE bonus_table IS TABLE OF NUMBER;
+  t_bonuses bonus_table := bonus_table(100,200,300);
+
+  i PLS_INTEGER;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('--- Associative Array: city_population ---');
+  city_population('Kigali') := 1200000;
+  city_population('Musanze') := 450000;
+  city_population('Huye') := 210000;
+
+  -- Access and iterate using keys; associative arrays with VARCHAR2 require manual key iteration
+  DBMS_OUTPUT.PUT_LINE('Population of Kigali: ' || city_population('Kigali'));
+
+  -- Demonstrate EXISTS and DELETE
+  IF city_population.EXISTS('Huye') THEN
+    DBMS_OUTPUT.PUT_LINE('Huye exists with pop=' || city_population('Huye'));
+    city_population.DELETE('Huye');
+  END IF;
+
+  IF NOT city_population.EXISTS('Huye') THEN
+    DBMS_OUTPUT.PUT_LINE('Huye has been deleted from associative array');
+  END IF;
+
+  DBMS_OUTPUT.PUT_LINE('--- VARRAY: v_salaries ---');
+  DBMS_OUTPUT.PUT_LINE('Number of salaries in varray: ' || v_salaries.COUNT);
+  FOR i IN 1 .. v_salaries.COUNT LOOP
+    DBMS_OUTPUT.PUT_LINE('Salary ' || i || ': ' || v_salaries(i));
+  END LOOP;
+
+  -- Appending to a varray is not supported beyond its size; show how to replace element
+  v_salaries(2) := 6200; -- update second salary
+  DBMS_OUTPUT.PUT_LINE('Updated salary 2: ' || v_salaries(2));
+
+  DBMS_OUTPUT.PUT_LINE('--- Nested Table: t_bonuses ---');
+  DBMS_OUTPUT.PUT_LINE('Bonuses count before DELETE: ' || t_bonuses.COUNT);
+
+  -- Delete the second element to create a sparse table
+  t_bonuses.DELETE(2);
+
+  -- Iterate using LAST and FIRST and checking EXISTS
+  i := t_bonuses.FIRST;
+  WHILE i IS NOT NULL LOOP
+    IF t_bonuses.EXISTS(i) THEN
+      DBMS_OUTPUT.PUT_LINE('Bonus[' || i || '] = ' || t_bonuses(i));
+    ELSE
+      DBMS_OUTPUT.PUT_LINE('Bonus[' || i || '] = <deleted>');
+    END IF;
+    i := t_bonuses.NEXT(i);
+  END LOOP;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in collections_examples: ' || SQLERRM);
+END;
+/
+```
+
+---
+
+## scripts/records_examples.sql
+
+```sql
+-- records_examples.sql
+-- Demonstrates: user-defined RECORD, %ROWTYPE for a cursor/table
+SET SERVEROUTPUT ON SIZE 1000000;
+
+DECLARE
+  -- User-defined record for a simplified employee
+  TYPE emp_rec_type IS RECORD (
+    emp_id   NUMBER,
+    emp_name VARCHAR2(100),
+    salary   NUMBER
+  );
+  emp_rec emp_rec_type;
+
+  -- Cursor-based record using a cursor's %ROWTYPE (example uses EMPLOYEES table if available)
+  CURSOR c_emp IS SELECT employee_id, first_name, last_name, salary FROM employees WHERE ROWNUM <= 5;
+  db_emp c_emp%ROWTYPE;
+
+BEGIN
+  -- Assign values to user-defined record
+  emp_rec.emp_id := 101;
+  emp_rec.emp_name := 'Jane Doe';
+  emp_rec.salary := 4800;
+
+  DBMS_OUTPUT.PUT_LINE('User-defined record contents:');
+  DBMS_OUTPUT.PUT_LINE('ID: ' || emp_rec.emp_id || ', Name: ' || emp_rec.emp_name || ', Salary: ' || emp_rec.salary);
+
+  DBMS_OUTPUT.PUT_LINE('Cursor-based records (first 5 employees):');
+  OPEN c_emp;
+  LOOP
+    FETCH c_emp INTO db_emp;
+    EXIT WHEN c_emp%NOTFOUND;
+    DBMS_OUTPUT.PUT_LINE('EmpID=' || db_emp.employee_id || ' Name=' || db_emp.first_name || ' ' || db_emp.last_name || ' Salary=' || db_emp.salary);
+  END LOOP;
+  CLOSE c_emp;
+
+EXCEPTION
+  WHEN NO_DATA_FOUND THEN
+    DBMS_OUTPUT.PUT_LINE('No data found in cursor (employees table may be empty)');
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in records_examples: ' || SQLERRM);
+END;
+/
+```
+
+---
+
+## scripts/goto_example.sql
+
+```sql
+-- goto_example.sql
+-- Demonstrates a simple GOTO usage to break out of nested loops
+SET SERVEROUTPUT ON SIZE 1000000;
+
+DECLARE
+  i PLS_INTEGER;
+  j PLS_INTEGER;
+  found_flag BOOLEAN := FALSE;
+BEGIN
+  DBMS_OUTPUT.PUT_LINE('Searching for the first pair (i * j = 12) with i in 1..6 and j in 1..6');
+
+  FOR i IN 1 .. 6 LOOP
+    FOR j IN 1 .. 6 LOOP
+      IF i * j = 12 THEN
+        DBMS_OUTPUT.PUT_LINE('Found pair: i=' || i || ' j=' || j);
+        found_flag := TRUE;
+        GOTO end_search; -- immediate exit from both loops
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  <<end_search>>
+  NULL; -- label target
+
+  IF NOT found_flag THEN
+    DBMS_OUTPUT.PUT_LINE('No pair found');
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('Search ended via GOTO to label end_search');
+  END IF;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in goto_example: ' || SQLERRM);
+END;
+/
+```
+
+**Note on GOTO:** modern PL/SQL programming favors structured control (EXIT, RETURN, exceptions). GOTO can be used sparingly for readability in complex nested loops but should be documented when used.
+
+---
+
+## scripts/combined_solution.sql
+
+```sql
+-- combined_solution.sql
+-- Put together: a record that contains a VARRAY of salaries and an associative array for quick lookup
+SET SERVEROUTPUT ON SIZE 1000000;
+
+DECLARE
+  -- VARRAY of monthly salaries for an employee (max 6 months)
+  TYPE salary_varray IS VARRAY(6) OF NUMBER;
+
+  -- Record that contains employee id, name and varray of last salaries
+  TYPE employee_rec IS RECORD (
+    emp_id NUMBER,
+    emp_name VARCHAR2(100),
+    salaries salary_varray
+  );
+
+  emp employee_rec;
+
+  -- Associative array mapping emp_id to full name (quick lookup)
+  TYPE emp_lookup IS TABLE OF VARCHAR2(200) INDEX BY PLS_INTEGER;
+  lookup emp_lookup;
+
+  i PLS_INTEGER;
+BEGIN
+  -- Prepare data
+  emp.emp_id := 201;
+  emp.emp_name := 'Samuel K.';
+  emp.salaries := salary_varray(4500, 4600, 4700);
+
+  lookup(emp.emp_id) := emp.emp_name;
+  lookup(202) := 'Aline M.';
+
+  DBMS_OUTPUT.PUT_LINE('Combined example: record with varray and associative array lookup');
+  DBMS_OUTPUT.PUT_LINE('Employee: ' || lookup(emp.emp_id) || ' (ID=' || emp.emp_id || ')');
+  DBMS_OUTPUT.PUT_LINE('Salaries:');
+  FOR i IN 1 .. emp.salaries.COUNT LOOP
+    DBMS_OUTPUT.PUT_LINE('  Month ' || i || ': ' || emp.salaries(i));
+  END LOOP;
+
+  -- Demonstrate updating lookup and checking
+  IF lookup.EXISTS(202) THEN
+    DBMS_OUTPUT.PUT_LINE('Lookup for 202: ' || lookup(202));
+  END IF;
+
+EXCEPTION
+  WHEN OTHERS THEN
+    DBMS_OUTPUT.PUT_LINE('Error in combined_solution: ' || SQLERRM);
+END;
+/
+```
+
+---
+
+## docs/run_instructions.md
+
+* Open SQL*Plus or Oracle SQL Developer.
+* Ensure you have privileges to run anonymous PL/SQL blocks and `DBMS_OUTPUT` is enabled.
+
+  * In SQL*Plus: `SET SERVEROUTPUT ON SIZE 1000000`
+  * In SQL Developer: enable DBMS_OUTPUT panel and turn it ON.
+* Run each `.sql` script. Example: `@scripts/collections_examples.sql` or copy & paste into the SQL worksheet and run.
+
+---
+
+## docs/assessment_checklist.md
+
+Instructor checklist (each item should be visible in output or script comments):
+
+* [ ] Associative Array: declaration, assignment, EXISTS, DELETE, access
+* [ ] VARRAY: declaration, initialization, COUNT, element access, update
+* [ ] Nested Table: declaration, delete to create sparse entries, FIRST/LAST/NEXT, EXISTS handling
+* [ ] User-defined RECORD: TYPE .. IS RECORD and field assignments
+* [ ] %ROWTYPE or cursor-based record used to fetch table rows
+* [ ] GOTO example with a label; comment explaining why used
+* [ ] Combined example that shows Collections + Records together
+* [ ] Clear inline comments and instructions for running the scripts
+
+---
+
+## Notes & Teaching tips
+
+* Always enable `DBMS_OUTPUT` in your client before running these scripts.
+* Encourage students to replace the `employees` cursor with a small test table if the `employees` table is not present in the environment.
+* Remind students that `GOTO` is allowed in PL/SQL but should be used sparingly.
+
+---
+
+*End of repository document.*
 
